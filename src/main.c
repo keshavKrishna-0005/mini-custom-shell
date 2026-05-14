@@ -1,5 +1,13 @@
 #include "shell_resource.h"
 
+
+void handle_sigint(int sig)
+{
+    (void) sig;
+    printf("\n[shell]> ");
+    fflush(stdout);
+}
+
 void shell_loop(char **env)
 {
     char *input = NULL;
@@ -8,6 +16,9 @@ void shell_loop(char **env)
     char **args = NULL;
     char *initial_directory = getcwd(NULL, 0);
     char **env_copy = make_env_copy(env);
+
+    // ignoring signal SIGINT (Ctrl+C) to prevent shell from exiting
+    signal(SIGINT, handle_sigint);
     while(1)
     {
         printf("[shell]> ");

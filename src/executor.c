@@ -5,12 +5,16 @@ int execute_command(char **args, char **env)
 {
     pid_t pid;
     int status;
+    signal(SIGINT, SIG_IGN); // ignore SIGINT in parent process to prevent shell from exiting on Ctrl+C
 
     pid = fork();
     if (pid == -1) {
         perror("fork");
         return 1;
     } else if (pid == 0) { // child process
+        // execute the command in the child process
+        // restore default behaviour of SIGINT in child process
+        signal(SIGINT, SIG_DFL);
         if (child_process(args, env)) {
             exit(EXIT_FAILURE);
         }
@@ -19,11 +23,22 @@ int execute_command(char **args, char **env)
             perror("waitpid");
             return 1;
         }
-        if (WIFSIGNALED(status)) {
-            printf("Process terminated by signal %d\n", WTERMSIG(status));
+        signal(SIGINT, handle_sigint); // restore signal handler for SIGINT in parent process
+        if (WIFSIGNALED(status)) {  // check if child process was terminated by a signal
+            int sig = WTERMSIG(status);
+            if(sig != SIGINT) { // if the signal is not SIGINT, print the signal number
+                printf("\nProcess terminated by signal %d\n", sig);
+            }
+            else {
+                printf("\n");
+            }
+            return 128 + sig; // Standard Unix convention for signal exits
         }
     }
-    return 0;
+    if (WIFEXITED(status)) { // check if child process was exited normally
+        return WEXITSTATUS(status); // Returns 0 for success, 1-255 for errors
+    }
+    return status;
 }
 
 // function to execute command in child process

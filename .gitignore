@@ -1,1 +1,11 @@
-shell
+# 1. Ignore everything
+**
+# 2. Allow all directories
+!**/
+# 3. Allow all files that have a dot (extensions)
+!*.*
+
+*.out
+.vscode
+!Makefile
+!Readme.md

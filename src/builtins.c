@@ -1,14 +1,48 @@
 #include "shell_resource.h"
 
 
-// permission issues, cd ~, cd    (not implemented)
+// permission issues,cd -  (not implemented)
 int command_cd(char **args, char *initial_directory)
 {
     (void) initial_directory;
     char *path = args[1];
-    if(path == NULL) {
+    if(path == NULL) { // reach home directory 
         path = getenv("HOME");
-    } 
+    }
+
+    char *home_dir = NULL;
+    if((home_dir = string_chr(path, '~')) != NULL) { // check if directory name starts with ~
+        if(home_dir == path) { // check if ~user or ~/ or actual path
+
+            if((path[1] != 0) && (path[1] == '/')) { // cd ~/actual_path
+                char *home_env = getenv("HOME");
+                if(home_env == NULL) {
+                    printf("cd: HOME environment variable not set\n");
+                    return 1;
+                }
+                size_t new_path_len = string_length(home_env) + string_length(path);
+                char *new_path = (char *)malloc((new_path_len) * sizeof(char));
+                if(new_path == NULL) {
+                    perror("malloc failure");
+                    return 1;
+                }
+                snprintf(new_path, new_path_len, "%s%s", home_env, path + 1);
+                path = new_path;
+            }
+
+            else if(path[1] != 0) { // cd ~user
+                printf("cd: user directories not supported\n");
+                return 1;
+            } else { // cd ~
+                char *home_env = getenv("HOME");
+                if(home_env == NULL) {
+                    printf("cd: HOME environment variable not set\n");
+                    return 1;
+                }
+                path = home_env;
+            }
+        }
+    }
     if(chdir(path) != 0) {
         perror("cd");
     }
