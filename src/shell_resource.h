@@ -5,6 +5,10 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <fcntl.h>
+
+// list of built in commands
+extern const char* built_in_commands[];
 
 
 // signal handlers
@@ -22,25 +26,26 @@ int execute_command(char **args, char **env);
 int child_process(char **args, char **env);
 
 
-// helper functions
+// string helper functions
 int string_comp(const char *str1, const char *str2);
 int string_ncomp(const char *str1, const char *str2, size_t len);
 size_t string_length(const char *str);
-
 char* string_copy(char *dest, const char *src);
 char *string_ncopy(char *dest, const char *src, size_t n);
 char* string_dup(const char *str);
-
-char **make_env_copy(char **env);
-char *getenvironment(const char *name, char **env);
-
 char* string_tok(char *str, const char *delimiter);
 char* string_chr(const char *str, int ch);
 
+
+// helper functions
+char **make_env_copy(char **env);
+char *getenvironment(const char *name, char **env);
 char* find_command_in_path(char *command, char **env);
+int is_builtin_command(const char *command);
 
 
 // builtin commands
+int execute_builtin(char **args, char **env, char *initial_directory);
 int shell_builtins(char **args, char **env, char *initial_directory);
 int command_cd(char **args, char *initial_directory);
 int command_pwd();

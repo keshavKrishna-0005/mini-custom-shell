@@ -9,7 +9,7 @@ char** parse_input(char *input)
     
     if(!tokens)
     {
-        perror("Malloc failure\n");
+        perror("bash : memory allocation failure\n");
         exit(1);
     }
     size_t position = 0;
@@ -50,7 +50,7 @@ char** parse_input(char *input)
             tokens[position] = malloc((token_length+1)*sizeof(char));
             if(!tokens[position])
             {
-                perror("Malloc failure\n"); // should also free space
+                perror("bash : memory allocation failure\n"); // should also free space
                 free_tokens(tokens, position);
                 exit(1);
             }

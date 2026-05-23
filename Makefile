@@ -1,6 +1,6 @@
 TARGET = shell
 SRC_DIR = src
-SRC = main.c parser.c helpers.c builtins.c executor.c
+SRC = main.c parser.c helpers.c builtins.c executor.c string_helpers.c
 CFLAGS = -Wall -Wextra -Werror
 CC = gcc
 

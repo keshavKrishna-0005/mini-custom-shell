@@ -58,8 +58,10 @@ void shell_loop(char **env)
         } else if(!string_comp(args[0], "unsetenv")) {
             env_copy = command_unsetenv(args, env_copy); // has potential issues to be fixed later
 
+        } else if(is_builtin_command(args[0])) {
+            shell_builtins(args, env_copy, initial_directory);
         } else {
-            shell_builtins(args, env_copy, initial_directory); // check for builtin commands
+            execute_command(args, env);
         }
 
 

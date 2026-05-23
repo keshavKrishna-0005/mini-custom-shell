@@ -38,50 +38,159 @@ int execute_command(char **args, char **env)
     if (WIFEXITED(status)) { // check if child process was exited normally
         return WEXITSTATUS(status); // Returns 0 for success, 1-255 for errors
     }
-    return status;
+    return 1;
 }
 
 // function to execute command in child process
 int child_process(char **args, char **env)
 {
-    char *command_path = find_command_in_path(args[0], env);
-    if (command_path != NULL) { // command found so try to execute
-        if(access(command_path, X_OK) == 0) {
-            execve(command_path, args, env);
-            perror("execve");
-            exit(EXIT_FAILURE);
+    // check for redirections and handle them if present
+    int saved_stderr = -1;
+    int buffer_size = 8;
+    char **filtered_args = malloc(buffer_size*sizeof(char *));
+    int pointer = 0;
+    if(filtered_args == NULL) {
+        perror("bash : memory allocation failure\n");
+        exit(1);
+    }
+
+    for(int i=0; args[i]; i++) {
+
+        // input redirection
+        if(string_comp(args[i], "<") == 0 && args[i+1] != NULL) {
+            int fd_in = open(args[i+1], O_RDONLY);
+            if(fd_in < 0) {
+                if(saved_stderr != -1) {
+                    dup2(saved_stderr, 2);
+                }
+                fprintf(stderr, "bash : %s: No such file or directory\n", args[i+1]);
+                exit(1);
+            }
+            dup2(fd_in, 0);
+            close(fd_in);
+            i++;
+
+        // output redirection
+        } else if (string_comp(args[i], ">") == 0 && args[i+1] != NULL) {
+            int fd_out = open(args[i+1], O_CREAT | O_WRONLY | O_TRUNC, 0644);
+            if(fd_out < 0) {
+                if(saved_stderr != -1) {
+                    dup2(saved_stderr, 2);
+                }
+                fprintf(stderr, "bash : error opening %s\n", args[i+1]);
+                exit(1);
+            }
+            dup2(fd_out, 1);
+            close(fd_out);
+            i++;
+
+        // output append redirection
+        } else if (string_comp(args[i], ">>") == 0 && args[i+1] != NULL) {
+            int fd_out = open(args[i+1], O_CREAT | O_WRONLY | O_APPEND, 0644);
+            if(fd_out < 0) {
+                if(saved_stderr != -1) {
+                    dup2(saved_stderr, 2);
+                }
+                fprintf(stderr, "bash : error opening %s\n", args[i+1]);
+                exit(1);
+            }
+            dup2(fd_out, 1);
+            close(fd_out);
+            i++;
+
+        // error redirection
+        } else if (string_comp(args[i], "2>") == 0 && args[i+1] != NULL) {
+            if(saved_stderr == -1) saved_stderr = dup(2);
+
+            int fd_err = open(args[i+1], O_CREAT | O_WRONLY | O_TRUNC, 0644);
+            if(fd_err < 0) {
+                if(saved_stderr != -1) {
+                    dup2(saved_stderr, 2);
+                }
+                fprintf(stderr, "bash : error opening %s\n", args[i+1]);
+                exit(1);
+            }
+            dup2(fd_err, 2);
+            close(fd_err);
+            i++;
+
+        // error append redirection
+        } else if (string_comp(args[i], "2>>") == 0 && args[i+1] != NULL) {
+            if(saved_stderr == -1) saved_stderr = dup(2);
+
+            int fd_err = open(args[i+1], O_CREAT | O_WRONLY | O_APPEND, 0644);
+            if(fd_err < 0) {
+                if(saved_stderr != -1) {
+                    dup2(saved_stderr, 2);
+                }
+                fprintf(stderr, "bash : error opening %s\n", args[i+1]);
+                exit(1);
+            }
+            dup2(fd_err, 2);
+            close(fd_err);
+            i++;
+
+        // normal argument
         } else {
-            fprintf(stderr, "%s: permission denied\n", command_path);
-            exit(EXIT_FAILURE);
+            filtered_args[pointer++] = string_dup(args[i]);
+            if(pointer >= buffer_size - 1) {
+                char **new_ptr = realloc(filtered_args, (buffer_size<<1) * sizeof(char *));
+                if(new_ptr == NULL) {
+                    if(saved_stderr != -1) {
+                        dup2(saved_stderr, 2);
+                    }
+                    perror("bash : memory allocation failure\n");
+                    exit(1);
+                }
+                filtered_args = new_ptr;
+                buffer_size <<= 1;
+            }
         }
     }
-    free(command_path);
 
+    filtered_args[pointer] = NULL;
 
-    // check current directory for executables
-    char *cwd = getcwd(NULL, 0);
-    if (cwd == NULL) {
-        perror("getcwd");
-        exit(EXIT_FAILURE);
+    // safety check
+    if(filtered_args[0] == NULL) {
+        free(filtered_args); // since no real arguments were added
+        exit(0);
     }
-    size_t len = (string_length(args[0]) + string_length(cwd) + 2);
-    char *full_path = (char *) malloc(sizeof(char) * len);
-    if(full_path == NULL) {
-        perror("malloc");
-        free(cwd);
-        exit(EXIT_FAILURE);
-    }
-    snprintf(full_path, len, "%s/%s", cwd, args[0]);
+    
+    // find executable in path env
+    char *command_path = NULL;
 
-    if (access(full_path, X_OK) == 0) {
-        execve(full_path, args, env);
-        perror("execve");
-        
+    if(string_chr(filtered_args[0], '/') != NULL) {
+        command_path = string_dup(filtered_args[0]);
     } else {
-        fprintf(stderr, "%s: command not found\n", args[0]);
+        command_path = find_command_in_path(filtered_args[0], env);
     }
-    // no such command present, print error message
-    free(full_path);
-    free(cwd);
-    exit(EXIT_FAILURE);
+
+
+    if (command_path != NULL) { // command found so try to execute
+        if(access(command_path, X_OK) == 0) {
+            execve(command_path, filtered_args, env);
+
+            if(saved_stderr != -1)  dup2(saved_stderr, 2);
+            perror("bash : execve");
+            exit(EXIT_FAILURE);
+        } else {
+            if(saved_stderr != -1)  dup2(saved_stderr, 2);
+
+            fprintf(stderr, "%s: permission denied\n", command_path);
+            free(command_path);
+            for(int i=0; filtered_args[i]; i++)
+                free(filtered_args[i]);
+            free(filtered_args);
+            exit(126);
+        }
+    }
+
+    if(saved_stderr != -1)  dup2(saved_stderr, 2);
+
+    fprintf(stderr, "%s: command not found\n", filtered_args[0]);
+    free(command_path);
+    for(int i=0; filtered_args[i]; i++)
+        free(filtered_args[i]);
+    free(filtered_args);
+    exit(127);
 }
