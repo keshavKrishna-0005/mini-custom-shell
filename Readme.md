@@ -1,23 +1,40 @@
 # Custom Unix Shell
 
-A minimal Unix-like shell implemented in C. This project focuses on understanding how command-line interpreters work at a low level, including process creation, command execution, environment handling and file redirection.
+A Unix-like shell implemented in C to explore how command-line interpreters work internally. The project focuses on process creation, command execution, signal handling, job control, pipelines, redirections, and command parsing.
 
 ## Features
 
-- Execute external commands using `fork()` and `execve()`
-- Parse command-line arguments
-- Handle environment variables
-- Input/output/error file redirection
-- Custom SIGINT (`Ctrl+C`) handling
+### Command Execution
+
+- Execute external commands using fork() and execve()
+- Pass command-line arguments to programs
+- Environment variable support
+- Process synchronization using wait() / waitpid()
+
+### Shell Operators
+- Command pipelines using |
+- Conditional execution using &&
+- Conditional execution using ||
+
+### Input / Output Redirection
+- Standard input redirection (<)
+- Standard output redirection (>)
+- Standard error redirection (2>)
+
+### Signals & Utilities
+- SIGINT (Ctrl+C) handling
+- Tokenization of user input
 - Custom utility/string functions
-- Basic error handling and process management
+- Error handling and reporting
 
 ## Example
 
 ```bash
-shell> ls -l
-shell> echo Hello > output.txt
-shell> cat < output.txt
+[shell]> ls -l | grep ".c" 
+[shell]> make && ./shell 
+[shell]> cat input.txt | sort | uniq 
+[shell]> gcc main.c -o app || echo "Compilation failed" 
+[shell]> echo Hello > output.txt
 ```
 
 ## Compilation & Usage
@@ -42,27 +59,29 @@ make run
 - Understanding how shells execute commands
 - Understanding file handling for standard services
 - Building core utilities from scratch
+- Unix signals and terminal behavior
+- File descriptor manipulation
+- Pipes and inter-process communication (IPC)
+- Job control fundamentals
+- Command parsing and shell design
 
 ## Challenges & What I Learned
 
-While building this shell, I started with the goal of simply executing commands, but quickly realized how much complexity exists behind real Unix shells like bash or zsh.
+Building a shell revealed how much work happens behind every command entered into a terminal.
 
-Features such as signal handling and file redirection introduced lower-level concepts like:
+What initially seemed like "run a program and wait for it" quickly expanded into understanding:
 
-- TTY (terminal) behavior
-- Process creation and control
-- File descriptor manipulation
-- Parent/child process separation
-- Signal propagation and handling
-
-One of the most interesting parts of this project was understanding why professional shells behave the way they do.
-For example, handling SIGINT correctly is not just about catching Ctrl+C, but about deciding whether the shell process or the child process should respond to it.
-This project made me appreciate both the elegance and complexity of Unix systems programming.
+- Signal delivery
+- Pipe creation and synchronization
+- File descriptor inheritance
+- Parsing operator precedence
+- Foreground vs background execution
 
 ## Notes
 
 - This project is intended for learning and experimentation with Unix internals.
-- Behavior may differ from standard shells like bash
+- Behavior may differ from Bash, Zsh, or other production shells.
+- Designed as an educational implementation rather than a full POSIX-compliant shell.
 
 
 ## Author

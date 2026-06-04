@@ -25,7 +25,7 @@ int command_cd(char **args, char *initial_directory)
                 size_t new_path_len = string_length(home_env) + string_length(path);
                 char *new_path = (char *)malloc((new_path_len) * sizeof(char));
                 if(new_path == NULL) {
-                    perror("bash : memory allocation failure\n");
+                    perror("bash : memory allocation failure");
                     return 1;
                 }
                 snprintf(new_path, new_path_len, "%s%s", home_env, path + 1);
@@ -47,12 +47,13 @@ int command_cd(char **args, char *initial_directory)
     }
     if(chdir(path) != 0) {
         perror("cd");
+        free(path);
     }
     return 0;
 }
 
 // done
-int command_pwd()
+int command_pwd(void)
 {
     char *cwd = NULL;
     if ((cwd = getcwd(NULL, 0)) == NULL){
@@ -78,10 +79,14 @@ int command_echo(char **args, char **env)
     for(; args[i]; i++) {
         
         if (args[i][0] == '$') { // handle env variables
-            char *value = getenvironment(args[i] + 1, env); // skipping $ from $PATH
-            if (value) {
-                printf("%s", value);
-            } 
+            if(string_comp(args[i], "$?") == 0) {
+                printf("%d", last_status);
+            } else {
+                char *value = getenvironment(args[i] + 1, env); // skipping $ from $PATH
+                if (value) {
+                    printf("%s", value);
+                } 
+            }
         } else {
             printf("%s", args[i]);
         }
@@ -165,7 +170,7 @@ char **command_setenv(char **args, char **env)
         size_t len = equal_sign-args[1];
         var = (char *)malloc((len+1) * sizeof(char));
         if(!var) {
-            perror("bash : memory allocation failure\n");
+            perror("bash : memory allocation failure");
             free(val);
             return env;
         }
@@ -193,7 +198,7 @@ char **command_setenv(char **args, char **env)
         if ((string_ncomp(var, env[i], len) == 0) && (env[i][len] == '=')) {
             char *new_entry = (char *)malloc((string_length(var) + string_length(val) + 2)*sizeof(char));
             if(!new_entry) {
-                perror("bash : memory allocation failure\n");
+                perror("bash : memory allocation failure");
                 free(var);
                 free(val);
                 return env;
@@ -211,7 +216,7 @@ char **command_setenv(char **args, char **env)
     // make a duplicate env variable
     char **new_env = (char**) malloc((env_count + 2) *sizeof(char*));
     if(!new_env) {
-        perror("bash : memory allocation failure\n");
+        perror("bash : memory allocation failure");
         return env;
         }
     for(size_t j=0; env[j]; j++) {
@@ -219,7 +224,7 @@ char **command_setenv(char **args, char **env)
     }
     char *new_entry = (char *)malloc((string_length(var) + string_length(val) + 2)*sizeof(char));
     if(!new_entry) {
-        perror("bash : memory allocation failure\n");
+        perror("bash : memory allocation failure");
         for(size_t i=0; i<env_count; i++) {
             free(new_env[i]);
         }
@@ -264,10 +269,10 @@ char **command_unsetenv(char **args, char **env)
         return env;
     }
     
-
+    /* env_count-1 total new envs +1 for the NULL terminator */
     char **new_env = (char **)malloc((env_count) * sizeof(char *));
     if(!new_env) {
-        perror("bash : memory allocation failure\n");
+        perror("bash : memory allocation failure");
         return env;
     }
 
@@ -287,9 +292,10 @@ char **command_unsetenv(char **args, char **env)
 }
 
 
-int execute_builtin(char **args, char **env, char *initial_directory)
+int execute_builtin(char **args, char ***env, char *initial_directory)
 {
     int status = 0;
+
     if(!string_comp(args[0], "cd")){
         status = command_cd(args, initial_directory);
 
@@ -297,14 +303,20 @@ int execute_builtin(char **args, char **env, char *initial_directory)
         status = command_pwd();
 
     } else if(!string_comp(args[0], "echo")){
-        status = command_echo(args, env);
+        status = command_echo(args, *env);
 
     } else if(!string_comp(args[0], "env")){
-        status = command_env(env);
+        status = command_env(*env);
 
     } else if(!string_comp(args[0], "which")){
-        status = command_which(args, env);
+        status = command_which(args, *env);
 
+    } else if(!string_comp(args[0], "setenv")){
+        *env = command_setenv(args, *env);
+
+    } else if(!string_comp(args[0], "unsetenv")){
+        *env = command_unsetenv(args, *env);
+    
     } else if(!string_comp(args[0], "exit") || !string_comp(args[0], "quit")){
         exit(EXIT_SUCCESS);
     }
@@ -312,156 +324,30 @@ int execute_builtin(char **args, char **env, char *initial_directory)
 }
 
 // cd, pwd, echo, env, setenv, unsetenv, which, exit
-int shell_builtins(char **args, char **env, char *initial_directory)
+int shell_builtins(char **args, char ***env, char *initial_directory)
 {
     int status = 0;
-    int error_during_redirection = -1; // 0 - unable to open input redirection, 1 - unable to redirect output/error, 2 - malloc/realloc failure
-    char *error_filename = NULL;
     int saved_stdin = -1;
     int saved_stdout = -1;
     int saved_stderr = -1;
 
-    int buffer_size = 8; // default buffer size
-    char **filtered_args = malloc(sizeof(char *)*buffer_size);
+    char **filtered_args = apply_redirection(args, &saved_stdin, &saved_stdout, &saved_stderr);
+    
+    
     if(filtered_args == NULL) {
-        perror("bash : memory allocation failure\n");
-        return 1;
-    }
-
-    int pointer = 0;
-    for(size_t i=0; args[i]; i++) { // checks for redirection and makes filtered args
-
-        //input redirection
-        if(string_comp(args[i], "<") == 0 && args[i+1] != NULL) { // i+1 contains filename (input redirected)
-            if(saved_stdin == -1) saved_stdin = dup(0); // saving stdin
-
-            int fd_in = open(args[i+1], O_RDONLY);
-            if(fd_in < 0) {
-                error_during_redirection = 0; 
-                error_filename = string_dup(args[i+1]); 
-                break;
-            }
-
-            dup2(fd_in, 0);
-            close(fd_in);
-            i++;
-
-        // output trucate redirection
-        } else if(string_comp(args[i], ">") == 0 && args[i+1] != NULL) {
-            if(saved_stdout == -1) saved_stdout = dup(1); // saving stdout
-
-            int fd_out = open(args[i+1], O_CREAT | O_WRONLY | O_TRUNC, 0644);
-            if(fd_out < 0) {
-                error_during_redirection = 1; 
-                error_filename = string_dup(args[i+1]); 
-                break;
-            }
-
-            dup2(fd_out, 1);
-            close(fd_out);
-            i++;
-
-        // output append redirection
-        } else if(string_comp(args[i], ">>") == 0 && args[i+1] != NULL) {
-            if(saved_stdout == -1) saved_stdout = dup(1); // saving stdout
-
-            int fd_out = open(args[i+1], O_CREAT | O_WRONLY | O_APPEND, 0644);
-            if(fd_out < 0) {
-                error_during_redirection = 1; 
-                error_filename = string_dup(args[i+1]);
-                break;
-            }
-
-            dup2(fd_out, 1);
-            close(fd_out);
-            i++;
-
-        // error truncate redirection
-        } else if(string_comp(args[i], "2>") == 0 && args[i+1] != NULL) {
-            if(saved_stderr == -1) saved_stderr = dup(2); // saving stderr
-
-            int fd_out = open(args[i+1], O_CREAT | O_WRONLY | O_TRUNC, 0644);
-            if(fd_out < 0) {
-                error_during_redirection = 1; 
-                error_filename = string_dup(args[i+1]);
-                break;
-            }
-
-            dup2(fd_out, 2);
-            close(fd_out);
-            i++;
-
-        // error append redirection
-        } else if(string_comp(args[i], "2>>") == 0 && args[i+1] != NULL) {
-            if(saved_stderr == -1) saved_stderr = dup(2); // saving stderr
-
-            int fd_out = open(args[i+1], O_CREAT | O_WRONLY | O_APPEND, 0644);
-            if(fd_out < 0) {
-                error_during_redirection = 1; 
-                error_filename = string_dup(args[i+1]); 
-                break;
-            }
-
-            dup2(fd_out, 2);
-            close(fd_out);
-            i++;
-
-        // normal argument
-        } else { 
-            filtered_args[pointer++] = string_dup(args[i]); // filtering args
-            if(pointer >= buffer_size-1) {
-                char **new_ptr = realloc(filtered_args, (buffer_size<<1)*sizeof(char *));
-                if(new_ptr == NULL) {
-                    error_during_redirection = 2; // realloc failure
-                    break;
-                }
-                filtered_args = new_ptr;
-                buffer_size <<= 1;
-            }
-        }
-
-    }
-
-    if(error_during_redirection != 2)
-        filtered_args[pointer] = NULL;
-    
-    // execute if redirection successful
-    if(error_during_redirection == -1) {
-        status = execute_builtin(filtered_args, env, initial_directory);
-    }
-
-    // restore stdin, stdout, stderr
-    if(saved_stdin != -1) {
-        dup2(saved_stdin, 0);
-        close(saved_stdin);
-    }
-    if(saved_stdout != -1) {
-        dup2(saved_stdout, 1);
-        close(saved_stdout);
-    }
-    if(saved_stderr != -1) {
-        dup2(saved_stderr, 2);
-        close(saved_stderr);
-    }
-
-    // handling error messages during redirection 
-    if(error_during_redirection == 0) {
-        fprintf(stderr, "bash : %s: No such file or directory\n", error_filename);
-        free(error_filename);
-        status = 1;
-
-    } else if(error_during_redirection == 1) {
-        fprintf(stderr, "bash : error opening %s\n", error_filename);
-        free(error_filename);
-        status = 1;
-
-    } else if(error_during_redirection == 2) {
-        fprintf(stderr, "bash : memory allocation failure\n");
-        status = 1;
+        return 1; /* if redirection failed restore already happened and no need to free filtered_args */
+    } else if(filtered_args[0] == NULL) { /* empty command */
+        free(filtered_args);
+        redirection_restore(saved_stdin, saved_stdout, saved_stderr);
+        return 0;
     }
     
+    status = execute_builtin(filtered_args, env, initial_directory);
+    /* restoring the redirected files */
+    redirection_restore(saved_stdin, saved_stdout, saved_stderr);
+
     if(filtered_args != NULL) {
-        for(int i=0; i<pointer; i++) {
+        for(int i=0; filtered_args[i]; i++) {
             if(filtered_args[i] != NULL) 
                 free(filtered_args[i]);
         }

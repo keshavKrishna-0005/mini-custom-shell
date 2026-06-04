@@ -7,26 +7,31 @@
 #include <signal.h>
 #include <fcntl.h>
 
-// list of built in commands
+/* shell status */
+extern int last_status;
+
+/* list of built in commands */
 extern const char* built_in_commands[];
 
 
-// signal handlers
+/* signal handlers */
 void handle_sigint(int sig);
 
 
-// parser
+/* parser */
 char **parse_input(char *input);
 void free_args(char **tokens);
 void free_tokens(char **tokens, size_t index);
+char ***split_args(char **args, const char *token);
+void free_splitted_args(char ***splitted_args);
 
 
-// executor
-int execute_command(char **args, char **env);
+/* executor */
+int execute_pipelined_command(char **args, char ***env, char *initial_directory);
 int child_process(char **args, char **env);
 
 
-// string helper functions
+/* string helper functions */
 int string_comp(const char *str1, const char *str2);
 int string_ncomp(const char *str1, const char *str2, size_t len);
 size_t string_length(const char *str);
@@ -37,16 +42,18 @@ char* string_tok(char *str, const char *delimiter);
 char* string_chr(const char *str, int ch);
 
 
-// helper functions
+/* helper functions */
 char **make_env_copy(char **env);
 char *getenvironment(const char *name, char **env);
 char* find_command_in_path(char *command, char **env);
 int is_builtin_command(const char *command);
+char **apply_redirection(char **args, int *saved_stdin, int *saved_stdout, int *saved_stderr);
+void redirection_restore(int saved_stdin, int saved_stdout, int saved_stderr);
 
 
-// builtin commands
-int execute_builtin(char **args, char **env, char *initial_directory);
-int shell_builtins(char **args, char **env, char *initial_directory);
+/* builtin commands */
+int execute_builtin(char **args, char ***env, char *initial_directory);
+int shell_builtins(char **args, char ***env, char *initial_directory);
 int command_cd(char **args, char *initial_directory);
 int command_pwd();
 int command_echo(char **args, char **env);
@@ -55,3 +62,8 @@ int command_which(char **args, char **env);
 
 char **command_setenv(char **args, char **env);
 char **command_unsetenv(char **args, char **env);
+
+
+/* job control */
+void execute_command_list(char **args, char ***env, char *initial_directory);
+int execute_command(char **args, char ***env, char *initial_directory);

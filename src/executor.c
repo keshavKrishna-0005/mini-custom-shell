@@ -1,44 +1,113 @@
 #include "shell_resource.h"
 
 // executes a command using fork and waits for it to complete
-int execute_command(char **args, char **env)
+int execute_pipelined_command(char **args, char ***env, char *initial_directory)
 {
-    pid_t pid;
-    int status;
-    signal(SIGINT, SIG_IGN); // ignore SIGINT in parent process to prevent shell from exiting on Ctrl+C
-
-    pid = fork();
-    if (pid == -1) {
-        perror("fork");
+    int status = 0;
+    signal(SIGINT, SIG_IGN); // ignoring SIGINT in parent process to prevent it from exiting on Ctrl+C
+    /* extract different commands by splitting for pipes | */
+    char ***pipelined_commands = split_args(args, "|");
+    if(pipelined_commands == NULL) {
         return 1;
-    } else if (pid == 0) { // child process
-        // execute the command in the child process
-        // restore default behaviour of SIGINT in child process
-        signal(SIGINT, SIG_DFL);
-        if (child_process(args, env)) {
-            exit(EXIT_FAILURE);
-        }
-    } else { // parent process
-        if (waitpid(pid, &status, 0) == -1) {
-            perror("waitpid");
+    }
+    if(pipelined_commands[0] == NULL) { /* empty command */
+        free_splitted_args(pipelined_commands);
+        return 0;
+    }
+
+    /* for all commands execute them and connect pipes */
+    int num_commands = 0;
+    for(; pipelined_commands[num_commands]; num_commands++);
+    int pipe_fds[num_commands-1][2]; /* for n commands we need n-1 pipes */
+    for(int i=0; i<num_commands-1; i++) {
+        if(pipe(pipe_fds[i]) == -1) {
+            perror("bash : pipe");
+            for(int j=0; j<i; j++) { /* close already created pipes */
+                close(pipe_fds[j][0]);
+                close(pipe_fds[j][1]);
+            }
+            free_splitted_args(pipelined_commands);
             return 1;
         }
-        signal(SIGINT, handle_sigint); // restore signal handler for SIGINT in parent process
-        if (WIFSIGNALED(status)) {  // check if child process was terminated by a signal
-            int sig = WTERMSIG(status);
-            if(sig != SIGINT) { // if the signal is not SIGINT, print the signal number
-                printf("\nProcess terminated by signal %d\n", sig);
+    }
+
+    /* fork and execute command */
+    pid_t pids[num_commands];
+    for(int i=0;i<num_commands;i++) {
+        pids[i] = fork();
+        if(pids[i] == -1) {
+            perror("bash : fork");
+
+            for(int k=0;k<num_commands-1;k++) {
+                close(pipe_fds[k][0]);
+                close(pipe_fds[k][1]);
             }
-            else {
+
+            for(int j=0; j<i; j++) {
+                kill(pids[j], SIGKILL);
+                waitpid(pids[j], NULL, 0);
+            }
+            free_splitted_args(pipelined_commands);
+            return 1;
+
+        /* child process */
+        } else if(pids[i] == 0) {
+            signal(SIGINT, SIG_DFL); /* restore default SIGINT default behaviour */
+            if(i > 0) { /* check if not first command redirect input source */
+                dup2(pipe_fds[i-1][0], 0);
+                close(pipe_fds[i-1][0]);
+            }
+            if(i != num_commands -1) { /* check if not last command redirect output source */
+                dup2(pipe_fds[i][1], 1);
+                close(pipe_fds[i][1]);
+            }
+
+            for(int j=0;j<num_commands-1;j++) {
+                close(pipe_fds[j][0]);
+                close(pipe_fds[j][1]);
+            }
+
+            int cmd_status = 0;
+            if(is_builtin_command(pipelined_commands[i][0])) {
+                cmd_status = shell_builtins(pipelined_commands[i], env, initial_directory);
+                exit(cmd_status);
+            } else {
+                cmd_status = child_process(pipelined_commands[i], *env); /* this will never return */
+                exit(cmd_status);
+            }
+        
+        } 
+    }
+
+    for(int i = 0; i < num_commands - 1; i++) {
+        close(pipe_fds[i][0]);
+        close(pipe_fds[i][1]);
+    }
+
+    for(int i=0; i<num_commands; i++) {
+        int wstatus;
+        if(waitpid(pids[i], &wstatus, 0) == -1) {
+            perror("bash : waitpid");
+            return 1;
+        }
+        int cmd_status = 0;
+        if(WIFEXITED(wstatus)) {
+            cmd_status = WEXITSTATUS(wstatus);
+        } else if(WIFSIGNALED(wstatus)) {
+            int sig = WTERMSIG(wstatus);
+            if(sig == SIGINT) {
                 printf("\n");
+            } else {
+                fprintf(stderr, "bash : process terminated by signal %d\n", sig);
             }
-            return 128 + sig; // Standard Unix convention for signal exits
+            cmd_status = 128 + WTERMSIG(wstatus);
+        }
+        if(cmd_status > 0) { /* store the exit status if returned an exit status code as positive i.e. error occured */
+            status = cmd_status;
         }
     }
-    if (WIFEXITED(status)) { // check if child process was exited normally
-        return WEXITSTATUS(status); // Returns 0 for success, 1-255 for errors
-    }
-    return 1;
+    free_splitted_args(pipelined_commands);
+    return status;
 }
 
 // function to execute command in child process
@@ -46,113 +115,15 @@ int child_process(char **args, char **env)
 {
     // check for redirections and handle them if present
     int saved_stderr = -1;
-    int buffer_size = 8;
-    char **filtered_args = malloc(buffer_size*sizeof(char *));
-    int pointer = 0;
+    int saved_stdout = -1;
+    int saved_stdin = -1;
+    
+    char **filtered_args = apply_redirection(args, &saved_stdin, &saved_stdout, &saved_stderr);
+    
+    /* error occured during rediretion */
     if(filtered_args == NULL) {
-        perror("bash : memory allocation failure\n");
         exit(1);
-    }
-
-    for(int i=0; args[i]; i++) {
-
-        // input redirection
-        if(string_comp(args[i], "<") == 0 && args[i+1] != NULL) {
-            int fd_in = open(args[i+1], O_RDONLY);
-            if(fd_in < 0) {
-                if(saved_stderr != -1) {
-                    dup2(saved_stderr, 2);
-                }
-                fprintf(stderr, "bash : %s: No such file or directory\n", args[i+1]);
-                exit(1);
-            }
-            dup2(fd_in, 0);
-            close(fd_in);
-            i++;
-
-        // output redirection
-        } else if (string_comp(args[i], ">") == 0 && args[i+1] != NULL) {
-            int fd_out = open(args[i+1], O_CREAT | O_WRONLY | O_TRUNC, 0644);
-            if(fd_out < 0) {
-                if(saved_stderr != -1) {
-                    dup2(saved_stderr, 2);
-                }
-                fprintf(stderr, "bash : error opening %s\n", args[i+1]);
-                exit(1);
-            }
-            dup2(fd_out, 1);
-            close(fd_out);
-            i++;
-
-        // output append redirection
-        } else if (string_comp(args[i], ">>") == 0 && args[i+1] != NULL) {
-            int fd_out = open(args[i+1], O_CREAT | O_WRONLY | O_APPEND, 0644);
-            if(fd_out < 0) {
-                if(saved_stderr != -1) {
-                    dup2(saved_stderr, 2);
-                }
-                fprintf(stderr, "bash : error opening %s\n", args[i+1]);
-                exit(1);
-            }
-            dup2(fd_out, 1);
-            close(fd_out);
-            i++;
-
-        // error redirection
-        } else if (string_comp(args[i], "2>") == 0 && args[i+1] != NULL) {
-            if(saved_stderr == -1) saved_stderr = dup(2);
-
-            int fd_err = open(args[i+1], O_CREAT | O_WRONLY | O_TRUNC, 0644);
-            if(fd_err < 0) {
-                if(saved_stderr != -1) {
-                    dup2(saved_stderr, 2);
-                }
-                fprintf(stderr, "bash : error opening %s\n", args[i+1]);
-                exit(1);
-            }
-            dup2(fd_err, 2);
-            close(fd_err);
-            i++;
-
-        // error append redirection
-        } else if (string_comp(args[i], "2>>") == 0 && args[i+1] != NULL) {
-            if(saved_stderr == -1) saved_stderr = dup(2);
-
-            int fd_err = open(args[i+1], O_CREAT | O_WRONLY | O_APPEND, 0644);
-            if(fd_err < 0) {
-                if(saved_stderr != -1) {
-                    dup2(saved_stderr, 2);
-                }
-                fprintf(stderr, "bash : error opening %s\n", args[i+1]);
-                exit(1);
-            }
-            dup2(fd_err, 2);
-            close(fd_err);
-            i++;
-
-        // normal argument
-        } else {
-            filtered_args[pointer++] = string_dup(args[i]);
-            if(pointer >= buffer_size - 1) {
-                char **new_ptr = realloc(filtered_args, (buffer_size<<1) * sizeof(char *));
-                if(new_ptr == NULL) {
-                    if(saved_stderr != -1) {
-                        dup2(saved_stderr, 2);
-                    }
-                    perror("bash : memory allocation failure\n");
-                    exit(1);
-                }
-                filtered_args = new_ptr;
-                buffer_size <<= 1;
-            }
-        }
-    }
-
-    filtered_args[pointer] = NULL;
-
-    // safety check
-    if(filtered_args[0] == NULL) {
-        free(filtered_args); // since no real arguments were added
+    } else if(filtered_args[0] == NULL) { /* empty command */
         exit(0);
     }
     
@@ -169,13 +140,9 @@ int child_process(char **args, char **env)
     if (command_path != NULL) { // command found so try to execute
         if(access(command_path, X_OK) == 0) {
             execve(command_path, filtered_args, env);
-
-            if(saved_stderr != -1)  dup2(saved_stderr, 2);
             perror("bash : execve");
             exit(EXIT_FAILURE);
         } else {
-            if(saved_stderr != -1)  dup2(saved_stderr, 2);
-
             fprintf(stderr, "%s: permission denied\n", command_path);
             free(command_path);
             for(int i=0; filtered_args[i]; i++)
@@ -185,12 +152,12 @@ int child_process(char **args, char **env)
         }
     }
 
-    if(saved_stderr != -1)  dup2(saved_stderr, 2);
-
     fprintf(stderr, "%s: command not found\n", filtered_args[0]);
     free(command_path);
     for(int i=0; filtered_args[i]; i++)
         free(filtered_args[i]);
     free(filtered_args);
+
     exit(127);
 }
+

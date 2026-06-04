@@ -9,7 +9,7 @@ char** parse_input(char *input)
     
     if(!tokens)
     {
-        perror("bash : memory allocation failure\n");
+        perror("bash : memory allocation failure");
         exit(1);
     }
     size_t position = 0;
@@ -26,7 +26,7 @@ char** parse_input(char *input)
             {
                 if(!input[i])
                 {
-                    perror("Invalid input\n"); // should also free memory
+                    perror("Invalid input"); // should also free memory
                     free_tokens(tokens, position);
                     return NULL;
                 }
@@ -50,7 +50,7 @@ char** parse_input(char *input)
             tokens[position] = malloc((token_length+1)*sizeof(char));
             if(!tokens[position])
             {
-                perror("bash : memory allocation failure\n"); // should also free space
+                perror("bash : memory allocation failure"); // should also free space
                 free_tokens(tokens, position);
                 exit(1);
             }
@@ -66,11 +66,9 @@ char** parse_input(char *input)
                 char **ptr = realloc(tokens, (buffer_size<<1)*sizeof(char *));
                 if(ptr == NULL)
                 {
-                    perror("Realloc failure\n"); // should also free space
-                    free_tokens(tokens, position);
-                    return NULL;
+                    perror("bash : memory allocation failure"); // should also free space
+                    exit(1);
                 }
-                printf("Entered here\n");
                 tokens = ptr;
                 buffer_size <<=1;
             }
@@ -110,4 +108,106 @@ void free_args(char **tokens)
     free(tokens);
 }
 
+
+/* splits args array into 2D array based on the token provided */
+char ***split_args(char **args, const char *token)
+{
+    int buffer_size = 2; /* default buffere_size */
+    char ***splitted_args = (char ***) malloc((buffer_size) * sizeof(char *)); /* (char *) because all pointers are of same size */
+    if(splitted_args == NULL) {
+        perror("bash : memory allocation failure");
+        exit(1);
+    }
+    int num_commands = 0;
+    int arg_count = 0;
+    int group_start = 0;
+    int i=0;
+    for(; args[i]; i++) {
+
+        if(string_comp(args[i], token) == 0) { /* split here */
+
+            if(arg_count == 0) {
+                perror("bash : invalid command format");
+                splitted_args[num_commands] = NULL;
+                free_splitted_args(splitted_args);
+                return NULL;
+            }
+
+
+            splitted_args[num_commands] = (char **) malloc((arg_count+1) * sizeof(char *)); /* +1 to terminate each of them with NULL */
+            if(splitted_args[num_commands] == NULL) {
+                perror("bash : memory allocation failure");
+                splitted_args[num_commands] = NULL;
+                free_splitted_args(splitted_args);
+                exit(1);
+            }
+            for(int j=0;j<arg_count;j++) {
+                splitted_args[num_commands][j] = string_dup(args[group_start+j]);
+            }
+
+
+            splitted_args[num_commands++][arg_count] = NULL;
+            if(num_commands == buffer_size) {
+                char *** new_ptr = realloc(splitted_args, (buffer_size<<1)*sizeof(char *));
+                if(new_ptr == NULL) {
+                    perror("bash : memory allocation failure");
+                    exit(1);
+                }
+                splitted_args = new_ptr;
+                buffer_size <<=1;
+            }
+            arg_count = 0;
+            group_start = i + 1;
+        } else {
+            arg_count++;
+        }
+    }
+    /* final command*/
+    if(arg_count != 0) {
+        splitted_args[num_commands] = (char **) malloc((arg_count+1) * sizeof(char *)); /* +1 to terminate each of them with NULL */
+        if(splitted_args[num_commands] == NULL) {
+            perror("bash : memory allocation failure\n");
+            free_splitted_args(splitted_args);
+            exit(1);
+        }
+
+        for(int j=0;j<arg_count;j++) {
+            splitted_args[num_commands][j] = string_dup(args[group_start+j]);
+        }
+        splitted_args[num_commands++][arg_count] = NULL;
+        
+    } else if(arg_count == 0 && num_commands > 0) { /* no command after split token */
+        perror("bash : invalid command format");
+        splitted_args[num_commands] = NULL;
+        free_splitted_args(splitted_args);
+        return NULL;
+    }
+
+    /* terminate the splited_commands array with NULL */
+    if(num_commands == buffer_size) {
+        char *** new_ptr = realloc(splitted_args, (buffer_size+1)*sizeof(char *));
+        if(new_ptr == NULL) {
+            perror("bash : memory allocation failure");
+            exit(1);
+        }
+        splitted_args = new_ptr;
+        buffer_size += 1;
+    }
+    splitted_args[num_commands] = NULL;
+
+    return splitted_args;
+}
+
+void free_splitted_args(char ***splitted_args)
+{
+    if(splitted_args == NULL)
+        return;
+    for(int i=0; splitted_args[i]; i++) {
+        for(int j=0; splitted_args[i][j]; j++) {
+            free(splitted_args[i][j]);
+        }
+        free(splitted_args[i]);
+    }
+    free(splitted_args);
+}
 

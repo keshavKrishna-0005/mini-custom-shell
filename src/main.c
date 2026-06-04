@@ -8,6 +8,8 @@ void handle_sigint(int sig)
     fflush(stdout);
 }
 
+int last_status = 0;
+
 void shell_loop(char **env)
 {
     char *input = NULL;
@@ -42,26 +44,16 @@ void shell_loop(char **env)
         if(args == NULL)
             continue;
 
-        // printing arguments as recieved
-        // for(size_t i=0;args[i];i++)
-        // {
-        //     printf("arg %ld: %s\n",i, args[i]);
-        // }
 
         if(args[0] == NULL) {
             free(args);
             continue;
 
-        } else if(!string_comp(args[0], "setenv")) {
-            env_copy = command_setenv(args, env_copy); // has potential issues to be fixed later
-
-        } else if(!string_comp(args[0], "unsetenv")) {
-            env_copy = command_unsetenv(args, env_copy); // has potential issues to be fixed later
-
-        } else if(is_builtin_command(args[0])) {
-            shell_builtins(args, env_copy, initial_directory);
         } else {
-            execute_command(args, env);
+            /* this function will extract the execution units (commands seperated by && or ||) and execute them individually
+             * address of env_copy is sent for setting and unsetting env variables */
+            execute_command_list(args, &env_copy, initial_directory);
+
         }
 
 
@@ -79,15 +71,3 @@ int main(int argc, char **argv, char **env)
     shell_loop(env);
     return 0;
 }
-
-
-// repl (done)
-// input parsing
-// if cmd is std build them as it is to the cmd
-// managing path and env variables
-// fork and execution
-// wait for the child process
-// handle the resources to child
-// take the resources back from child on completion
-// if error occurs handle the error or intrupts 
-// promt the user again

@@ -5,6 +5,7 @@
 // < 0 : if str1 < str2
 int string_comp(const char *str1, const char *str2)
 {
+    if(str1 == NULL || str2 == NULL)  return -1;
     while(*str1 && (*str1 == *str2))
     {
         str1++;
@@ -18,6 +19,7 @@ int string_comp(const char *str1, const char *str2)
 // < 0 : if str1 < str2
 int string_ncomp(const char *str1, const char *str2, size_t len)
 {
+    if(str1 == NULL || str2 == NULL)  return -1;
     size_t i=0;
     while(i < len && str1[i] && str2[i]) {
         if(str1[i] != str2[i]) {
@@ -38,8 +40,7 @@ size_t string_length(const char *str)
 {   
     size_t len = 0;
 
-    if(str == NULL)
-        return len;
+    if(str == NULL)  return len;
     
     while((*str))
     {
@@ -53,6 +54,7 @@ size_t string_length(const char *str)
 char* string_copy(char *dest, const char *src)
 {
     if(src == NULL)  return NULL;
+    if(dest == NULL)  return NULL;
     char* ret = dest;
     while(*src){
         *dest = *src;
@@ -67,6 +69,7 @@ char* string_copy(char *dest, const char *src)
 char *string_ncopy(char *dest, const char *src, size_t n)
 {
     if(src == NULL) return NULL;
+    if(dest == NULL) return NULL;
     char *ret = dest;
     size_t i=0;
     while(i < n && *src) {
@@ -142,6 +145,8 @@ char* string_tok(char *str, const char *delimiter)
 // returns add of first char matching in str
 char* string_chr(const char *str, int ch)
 {
+    if(str == NULL)
+        return NULL;
     while(*str) {
         if(*str == ch) {
             return (char *)str;
