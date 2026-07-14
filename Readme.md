@@ -29,17 +29,24 @@ A Unix-like shell implemented in C to explore how command-line interpreters work
 
 ## Code Architecture
 
-Input
-   │
-Tokenizer
-   │
-Parser
-   │
-Job Control
-   └── Pipelines
-          ├── Redirection
-          ├── Built-in-Commands
-          └── External Commands
+## Architecture
+
+```text
+                 User Input
+                      │
+                Tokenizer (Lexer)
+                      │
+                   Parser
+                      │
+                   Job Control
+                      │
+            Pipeline and Redirection
+          ┌───────────┼───────────┐
+          │                       │
+     Built-in               External Commands
+     Commands     
+
+```
 
 ## Example
 
