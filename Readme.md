@@ -27,6 +27,20 @@ A Unix-like shell implemented in C to explore how command-line interpreters work
 - Custom utility/string functions
 - Error handling and reporting
 
+## Code Architecture
+
+Input
+   │
+Tokenizer
+   │
+Parser
+   │
+Job Control
+   └── Pipelines
+          ├── Redirection
+          ├── Built-in-Commands
+          └── External Commands
+
 ## Example
 
 ```bash
@@ -83,6 +97,3 @@ What initially seemed like "run a program and wait for it" quickly expanded into
 - Behavior may differ from Bash, Zsh, or other production shells.
 - Designed as an educational implementation rather than a full POSIX-compliant shell.
 
-
-## Author
-Keshav Krishna
