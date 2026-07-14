@@ -27,8 +27,6 @@ A Unix-like shell implemented in C to explore how command-line interpreters work
 - Custom utility/string functions
 - Error handling and reporting
 
-## Code Architecture
-
 ## Architecture
 
 ```text
